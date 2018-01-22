@@ -12,15 +12,98 @@ app.use(cors())
 
 app.set('view engine', 'ejs')
 
+//======== HELPER FUNCTIONS =========//
+var got50Characters = 0
+let characters = []
+
+function getCharacter(url, callback){
+    axios.get(url).then(data => {
+        characters = [...characters, ...data.data.results]
+        got50Characters += 1 //first goes on page 1, then 2, 3, 4, 5
+        if(got50Characters < 5){
+            getCharacter(data.data.next, callback)
+        } else {
+            callback()
+        }
+    })
+}
+
+function characterSort(sortTerm){
+    characters.sort((a, b) => {
+        if(sortTerm === 'mass'){
+            let aMass, bMass
+            if (a.mass === 'unknown'){
+                aMass = 0
+            } else {
+                aMass = a.mass.split(',').join('') * 1  
+            }
+            if(b.mass === 'unknown') {
+                bMass = 0
+            } else {
+                bMass = b.mass.split(',').join('') * 1  
+            }
+            if(aMass >= bMass){
+                return 1
+            } else {
+                return -1
+            }
+        }
+
+        if(sortTerm === 'height'){
+            let aHeight, bHeight
+            if (a.height === 'unknown'){
+                aHeight = 0
+            } else {
+                aHeight = a.height.split(',').join('') * 1  
+            }
+            if(b.height === 'unknown') {
+                bHeight = 0
+            } else {
+                bHeight = b.height.split(',').join('') * 1  
+            }
+            if(aHeight >= bHeight){
+                return 1
+            } else {
+                return -1
+            }
+        }
+
+        if (a[sortTerm] >= b[sortTerm]){
+            return 1
+        } else {
+            return -1
+        }
+    })
+}
+
+var gotAllPlanets = false
+let planets = {}
+function getPlanets(url, callback){
+    axios.get(url).then(data => {
+        data.data.results.map(e => {
+            planets[e.name] = e.residents
+        })
+        if(data.data.next){
+            getPlanets(data.data.next, callback)
+        } else {
+            callback()
+        }
+    })
+}
+
+//=========== ENDPOINTS ===========//
+
 //Basic Endpoint
 app.get('/', (req, res) => {
     res.render('index.ejs');
 })
 
+//Character endpoint - Luke, Leia, Han, Rey
 app.get('/character/:name', (req, res) => {
-    //I have chosen to make this work for just the 4 character 
+    //I have chosen to make this work for just the 4 characters 
     //specified. If I had not, I probably would have gotten all 
-    //people, and checked each page for the matching name that is requested.
+    //people, and checked each page for the matching name that 
+    //is requested.
     //req.params.name
     let nameDict = {
         luke: 1,
@@ -43,27 +126,8 @@ app.get('/character/:name', (req, res) => {
     })
 })
 
-//CHARACTERS - 50
-let gettingChars = new Promise((resolve, reject) => {
-    let characters = []
-    axios.get('https://swapi.co/api/people/?page=1').then(data => {
-        characters = [...characters, ...data.data.results]
-        axios.get(data.data.next).then(data => {
-            characters = [...characters, ...data.data.results]
-            axios.get(data.data.next).then(data => {
-                characters = [...characters, ...data.data.results]
-                axios.get(data.data.next).then(data => {
-                    characters = [...characters, ...data.data.results]
-                    axios.get(data.data.next).then(data => {
-                        characters = [...characters, ...data.data.results]
-                        resolve(characters)
-                    })
-                })
-            })
-        })
-    })
-})
 
+//CHARACTERS endpoint - get 50.
 app.get('/characters', (req, res) => {
     //NOTE: the SWAPI api already returns in groups 
     //of 10 per page, and doesn't have documentation
@@ -73,106 +137,38 @@ app.get('/characters', (req, res) => {
     //imagine that if I needed to, I would add something 
     //along the lines of - 
     //'...baseurl.../characters/page=1&limit=10'.
-    
-    gettingChars.then(data => {
-        // let sorter = req.query.name || req.query.mass || req.query.height
-        // console.log(sorter)
-        data.sort((a, b) => {
-            if(req.query.sort === 'mass'){
-                let aMass, bMass
-                if (a.mass === 'unknown'){
-                    aMass = 0
-                } else {
-                    aMass = a.mass.split(',').join('') * 1  
-                }
-                if(b.mass === 'unknown') {
-                    bMass = 0
-                } else {
-                    bMass = b.mass.split(',').join('') * 1  
-                }
-                if(aMass >= bMass){
-                    return 1
-                } else {
-                    return -1
-                }
-            }
 
-            if(req.query.sort === 'height'){
-                let aHeight, bHeight
-                if (a.height === 'unknown'){
-                    aHeight = 0
-                } else {
-                    aHeight = a.height.split(',').join('') * 1  
-                }
-                if(b.height === 'unknown') {
-                    bHeight = 0
-                } else {
-                    bHeight = b.height.split(',').join('') * 1  
-                }
-                if(aHeight >= bHeight){
-                    return 1
-                } else {
-                    return -1
-                }
-            }
+    getCharacter('https://swapi.co/api/people/?page=1', () => {
+        console.log('GO!')
+        got50Characters = 5
+    })
 
-            if (a[req.query.sort] >= b[req.query.sort]){
-                return 1
+    if(got50Characters === 5){
+        if(req.query.sort) {
+            characterSort(req.query.sort)
+        }
+        res.status(200).send(characters)
+    } else {
+        setTimeout(() => {
+            if(got50Characters === 5){
+                if(req.query.sort) {
+                    characterSort(req.query.sort)
+                }
+                res.status(200).send(characters)
             } else {
-                return -1
+                res.status(404).send('Having trouble reaching the API - try again in a minute!')
             }
-        })
-        res.status(200).send(data)
-    })
-    
-
+        }, 3000)
+    }
 })
 
-//Planets - 61 in API
-let gettingPlanets = new Promise((resolve, reject) => {
-    let planets = {}
-    axios.get('https://swapi.co/api/planets/?page=1').then(data => {
-        data.data.results.map(e => {
-            planets[e.name] = e.residents
-        })
-        axios.get(data.data.next).then(data => {
-            data.data.results.map(e => {
-                planets[e.name] = e.residents
-            })
-            axios.get(data.data.next).then(data => {
-                data.data.results.map(e => {
-                    planets[e.name] = e.residents
-                })
-                axios.get(data.data.next).then(data => {
-                    data.data.results.map(e => {
-                        planets[e.name] = e.residents
-                    })
-                    axios.get(data.data.next).then(data => {
-                        data.data.results.map(e => {
-                            planets[e.name] = e.residents
-                        })
-                        axios.get(data.data.next).then(data => {
-                            data.data.results.map(e => {
-                                planets[e.name] = e.residents
-                            })
-                            axios.get(data.data.next).then(data => {
-                                data.data.results.map(e => {
-                                    planets[e.name] = e.residents
-                                })
-                                resolve(planets)
-                            })
-                        })
-                    })
-                })
-            })
-        })
-    })
-})
+
+//Planets endpoint - 61 in API
 
 //This represents an attempt to make the code more flexible/DRY by making a recursive
 //call within the Promise callback function, until resolve is called. Tt was working, 
 //but, it was throwing an Unhandled Promise rejection error, so I decided to use the 
-//code above instead, just for the sake of being error free.
+//code below instead, just for the sake of being error free.
 // var planets = {}
 // var planetPageIterator = 1
 // function planetCallback(resolve, reject) {
@@ -191,25 +187,26 @@ let gettingPlanets = new Promise((resolve, reject) => {
 // let gettingPlanets = new Promise(planetCallback)
 
 app.get('/planetresidents', (req, res) => {
-    gettingPlanets.then(data => {
-        res.status(200).send(data)
+    
+    getPlanets('https://swapi.co/api/planets/?page=1', () => {
+        console.log('GO!')
+        gotAllPlanets = true
     })
 
+    if(gotAllPlanets){
+        res.status(200).send(planets)
+    } else {
+        setTimeout(() => {
+            if(gotAllPlanets){
+                res.status(200).send(planets)
+            } else {
+                res.status(404).send("Having trouble reaching the API - try again in a minute!")
+            }           
+        }, 3500)
+    }
     //From recursive attempt:
     // res.status(200).send(planets)
 })
 
 
 app.listen(port, () => console.log(`I'm listening on port ` + port))
-
-
-
-let iterator = 1
-function callback(resolve, reject){
-    axios.get('url').then(
-        //add data to thing
-        //if thing.length === data.data.count
-            //call resolve(thing)
-        //else callback(resolve, reject)
-    )
-}
